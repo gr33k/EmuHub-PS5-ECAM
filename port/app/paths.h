@@ -14,6 +14,11 @@
 
 #pragma once
 
+#ifdef EMUHUB_EMBEDDED_WIIU
+#define PS5CEMU_HEN_TITLE "PPSA91337"
+#else
+#define PS5CEMU_HEN_TITLE "PPSA99360"
+#endif
 #include "system_layout.h"
 
 #include <algorithm>
@@ -27,6 +32,15 @@
 
 namespace ps5paths
 {
+#ifdef EMUHUB_EMBEDDED_WIIU
+	// One EmuHub title; retain Cemu data under /data/ps5cemu for existing saves.
+	constexpr const char* kTitleId = "PPSA91337";
+	constexpr const char* kInstallDir = "/data/homebrew/PPSA91337/providers/wiiu";
+	constexpr const char* kMountedEboot = "/data/homebrew/PPSA91337/providers/wiiu/eboot.bin";
+	constexpr const char* kSystemMount = "/system_ex/app/PPSA91337/providers/wiiu";
+	constexpr const char* kMountRecord = "/user/app/PPSA91337/mount.lnk";
+	constexpr const char* kImageMountRecord = "/user/app/PPSA91337/mount_img.lnk";
+#else
 	constexpr const char* kTitleId = "PPSA99360";
 	constexpr const char* kInstallDir = "/data/homebrew/PPSA99360";
 	constexpr const char* kMountedEboot = "/data/homebrew/PPSA99360/eboot.bin";
@@ -37,6 +51,7 @@ namespace ps5paths
 	// there for an image
 	constexpr const char* kMountRecord = ECAM_MOUNT_RECORD;
 	constexpr const char* kImageMountRecord = "/user/app/PPSA99360/mount_img.lnk";
+#endif
 
 // where PS5-ECAM writes everything, unless DecideRoot finds a folder of its own on the app's
 // drive: on the console /data/ps5cemu; the launcher's preview on a PC (tools/preview-shell.sh) gives
@@ -70,7 +85,11 @@ namespace ps5paths
 
 	// The data folder: kDefaultRoot until main has decided it (DecideRoot), then the one decided
 	inline const std::string& Root() { return detail::RootSlot(); }
-	inline std::string CemuFolder() { return ecam_layout::Sibling(Root(), "cemu"); }
+#ifdef EMUHUB_EMBEDDED_WIIU
+    inline std::string CemuFolder() { return Root(); } // Keep installed MLC, keys, settings, and games.
+#else
+    inline std::string CemuFolder() { return ecam_layout::Sibling(Root(), "cemu"); }
+#endif
 	inline std::string Azahar() { const auto& s = detail::SelectedSystems(); return s.decided ? s.azahar : ecam_layout::System(Root(), "azahar"); }
 	inline std::string MelonDs() { const auto& s = detail::SelectedSystems(); return s.decided ? s.melonds : ecam_layout::System(Root(), "melonds"); }
 	// Eden's separate process shares this exact selection algorithm (ecam_layout::Eden): on /data,
@@ -87,7 +106,11 @@ namespace ps5paths
 	inline const std::string& CemuRoot()
 	{
 		// Used only after DecideRoot and elevation. Cemu's own paths are fixed for the process.
-		static const std::string folder = detail::FindCemuRoot(Root());
+#ifdef EMUHUB_EMBEDDED_WIIU
+        static const std::string folder = Root();
+#else
+        static const std::string folder = detail::FindCemuRoot(Root());
+#endif
 		return folder;
 	}
 	// Main calls this after elevation and DecideRoot, before any thread. Early settings reads
@@ -190,7 +213,10 @@ namespace ps5paths
 	// folder setting), where app/reorganize.h moved it; as it is while it is still there
 	inline std::string Moved(const std::string& path)
 	{
-		if (path.empty() || path[0] != '/' || Present(path))
+#ifdef EMUHUB_EMBEDDED_WIIU
+        return path; // Do not rewrite EmuHub game paths through upstream migration.
+#endif
+        if (path.empty() || path[0] != '/' || Present(path))
 			return path;
 		std::string moved;
 		auto under = [&](const std::string& old, const std::string& now) {
@@ -220,7 +246,13 @@ namespace ps5paths
 		struct stat info{};
 		if (image)
 			*image = stat(kImageMountRecord, &info) == 0;
-		return ecam_layout::MountSource(kMountRecord); // as Eden's program reads it
+		std::string source = ecam_layout::MountSource(kMountRecord);
+#ifdef EMUHUB_EMBEDDED_WIIU
+        if (source.empty()) return {};
+        source += "/providers/wiiu";
+        if (stat((source + "/eboot.bin").c_str(), &info) != 0 || !S_ISREG(info.st_mode)) return {};
+#endif
+        return source;
 	}
 
 	// The drives whose homebrew folders the app is installed in (#40 tried /mnt/ext1/homebrew)
@@ -231,7 +263,11 @@ namespace ps5paths
 	{
 		std::vector<std::string> folders{kInstallDir};
 		for (const char* drive : kInstallDrives)
-			folders.push_back(std::string(drive) + "/homebrew/" + kTitleId);
+			folders.push_back(std::string(drive) + "/homebrew/" + kTitleId
+#ifdef EMUHUB_EMBEDDED_WIIU
+                + "/providers/wiiu"
+#endif
+            );
 		return folders;
 	}
 
@@ -269,7 +305,11 @@ namespace ps5paths
 			struct stat info{};
 			return stat((folder + "/eboot.bin").c_str(), &info) == 0 && S_ISREG(info.st_mode);
 		};
+#ifdef EMUHUB_EMBEDDED_WIIU
+		for (const char* candidate : {"/app0/providers/wiiu", kSystemMount, kInstallDir, "/mnt/sandbox/PPSA91337_000/app0/providers/wiiu"})
+#else
 		for (const char* candidate : {"/app0", kSystemMount, kInstallDir, "/mnt/sandbox/PPSA99360_000/app0"})
+#endif
 			if (holdsApp(candidate))
 				return std::string(candidate);
 		// none of those: the folder ShadowMountPlus recorded (MountSource checks it holds the app),
@@ -277,7 +317,11 @@ namespace ps5paths
 		if (std::string source = MountSource(); !source.empty())
 			return source;
 		for (const char* drive : kInstallDrives)
-			if (std::string folder = std::string(drive) + "/homebrew/" + kTitleId; holdsApp(folder))
+			if (std::string folder = std::string(drive) + "/homebrew/" + kTitleId
+#ifdef EMUHUB_EMBEDDED_WIIU
+                + "/providers/wiiu"
+#endif
+                ; holdsApp(folder))
 				return folder;
 		return std::string(kInstallDir);
 	}
@@ -345,6 +389,11 @@ namespace ps5paths
 	inline const std::string& DecideRoot()
 	{
 		std::string& root = detail::RootSlot();
+#ifdef EMUHUB_EMBEDDED_WIIU
+		// This console's existing Cemu MLC and saves are in /data/ps5cemu.
+		// A USB-installed EmuHub must not silently choose a new empty drive root.
+		return root;
+#endif
 		std::string drive = DriveOf(MountSource());
 		if (drive.empty())
 			drive = DriveOf(AppDir());

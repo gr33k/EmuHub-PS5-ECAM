@@ -14,6 +14,9 @@
 #include "app/achievements.h"
 #include "app/catalog.h"
 #include "app/emulator.h"
+#ifdef EMUHUB_EMBEDDED_WIIU
+#include "app/emuhub_handoff.h"
+#endif
 #include "app/file_modes.h"
 #include "app/forwarders.h"
 #include "app/game_archives.h"
@@ -182,7 +185,12 @@ namespace
 	void SetHighFrameRate(bool highFrameRate)
 	{
 		ps5display::SetHighFrameRate(highFrameRate);
+#ifdef EMUHUB_EMBEDDED_WIIU
+		const std::string titleRoot = std::filesystem::path(ps5paths::AppDir()).parent_path().parent_path().string();
+		const std::string paramJson = titleRoot + (highFrameRate ? "/sce_sys/param.json" : "/sce_sys/no-high-frame-rate.json");
+#else
 		const std::string paramJson = ps5paths::AppDir() + (highFrameRate ? "/sce_sys/param.json" : "/sce_sys/no-high-frame-rate.json");
+#endif
 		setenv("PS5_VIDEOOUT_PARAM_JSON", paramJson.c_str(), 1);
 		// the new launcher opened VideoOut through the driver at 59.94 Hz: the game's rate asked for again
 		ps5display::ConfigureOutput(highFrameRate);
@@ -277,6 +285,17 @@ int main(int argc, char* argv[])
 	// for it), which the console answers by ending the app before anything is shown (CE-108255-1). What
 	// the app makes is opened to every user by the files' walk at each start instead (app/file_modes.h,
 	// #55, #58).
+#ifdef EMUHUB_EMBEDDED_WIIU
+	// Same-title provider: a single-use, path-checked request is required. Read it
+	// before the HEN can remove /app0 from this process's view.
+	const auto emuhubRequest = emuhub_handoff::consume("/app0/config/wiiu-request.txt");
+	if (!emuhubRequest) {
+		ps5log::Line("[emuhub] no valid Wii U request; returning to the EmuHub wheel");
+		const int result = sceSystemServiceLoadExec("/app0/es-de/es-de.bin", nullptr);
+		ps5log::Line("[emuhub] frontend return failed: {:#x}", (uint32_t)result);
+		return 2;
+	}
+#endif
 	ps5log::Line("[main] PS5-ECAM {} starting (Cemu at {}, Azahar at {}, melonDS at {}, Eden at {})", PS5CEMU_VERSION, PS5CEMU_CEMU_COMMIT,
 		PS5CEMU_AZAHAR_COMMIT, PS5CEMU_MELONDS_COMMIT, PS5CEMU_EDEN_COMMIT);
 	// before any thread starts: the HEN jailbreaks the process as it is. The game folders are read
@@ -299,7 +318,9 @@ int main(int argc, char* argv[])
 		// moved before any system's folder is decided or a file of theirs opened (the log's rotation
 		// opens Cemu's log.txt), and said in the log once it is open
 		std::vector<std::string> reorganizing;
-		reorganized = ps5reorganize::Run(ps5paths::Root(), ps5paths::kDefaultRoot, reorganizing);
+#ifndef EMUHUB_EMBEDDED_WIIU
+        reorganized = ps5reorganize::Run(ps5paths::Root(), ps5paths::kDefaultRoot, reorganizing);
+#endif
 		ps5paths::DecideSystemRoots();
 		ps5log::Open(ps5paths::Logs().c_str());
 		for (const std::string& line : reorganizing)
@@ -325,7 +346,26 @@ int main(int argc, char* argv[])
 	ps5settings::Launcher settings = ps5settings::Load();
 	// the update notice, on a fresh start only (not each time a game hands back to the library)
 	const bool freshStart = settings.side.empty();
-	const TileGame tile = ReadArguments(argc, argv, settings);
+	TileGame tile = ReadArguments(argc, argv, settings);
+#ifdef EMUHUB_EMBEDDED_WIIU
+	// Ignore untrusted argv for the embedded provider. The request identifies the
+	// exact selected WUA; its parent is scanned without rewriting ps5cemu.json.
+	std::string emuhubSelectedRom = emuhubRequest->rom;
+	if (emuhubSelectedRom.starts_with("/app0/content/")) {
+		const std::filesystem::path titleRoot =
+			std::filesystem::path(ps5paths::AppDir()).parent_path().parent_path();
+		emuhubSelectedRom = (titleRoot / "content" /
+			emuhubSelectedRom.substr(sizeof("/app0/content/") - 1)).string();
+	}
+	// Cemu may report the title's mounted path through another alias. Match
+	// the unique filename within the exact folder selected by EmuHub.
+	tile.rom = std::filesystem::path(emuhubSelectedRom).filename().string();
+	tile.side = ps5launcher::System::WiiU;
+	// Embedded launches return to EmuHub, so the in-game menu must say library.
+	tile.exitAfterGame = false;
+	if (privileges.filesystem)
+		ps5privilege::ReachFolders({std::filesystem::path(emuhubSelectedRom).parent_path().string()});
+#endif
 	if (!tile.rom.empty())
 		ps5log::Line("[main] a home screen tile: --rom {}{} ({} side)", tile.rom, tile.exitAfterGame ? " --exit-after-game" : "",
 			ps5launcher::SideTitle(tile.side));
@@ -561,7 +601,7 @@ int main(int argc, char* argv[])
 	if (!privileges.filesystem)
 	{
 		status.notice = status.notice3ds = status.noticeDs = status.noticeSwitch =
-			ps5lang::Tr("PS5-ECAM cannot reach /data. Load a HEN with PPSA99360 in its app jailbreak list, or elfldr, then restart PS5-ECAM.");
+			ps5lang::Tr("PS5-ECAM cannot reach /data. Load a HEN with " PS5CEMU_HEN_TITLE " in its app jailbreak list, or elfldr, then restart PS5-ECAM.");
 		ps5log::Line("[main] {}", status.notice);
 		ps5notify::Send(status.notice);
 	}
@@ -677,18 +717,25 @@ int main(int argc, char* argv[])
 		// app opens at once (the launcher polls it, and says why when it fails)
 		status.coreStarting = true;
 		ps5emu::Options options = Options(settings);
-		options.keepGameList = keepList(system, settings.gamesFolder);
-		ps5emu::StartCore(options);
+#ifdef EMUHUB_EMBEDDED_WIIU
+        options.gamesFolder = std::filesystem::path(emuhubSelectedRom).parent_path().string();
+        options.keepGameList = false;
+#else
+        options.keepGameList = keepList(system, settings.gamesFolder);
+#endif
+        ps5emu::StartCore(options);
 		if (!privileges.jit)
-			ps5notify::Send(ps5lang::Tr("No JIT memory: Wii U games run on the interpreter, much slower. Is PPSA99360 in your HEN's app jailbreak list?"));
+			ps5notify::Send(ps5lang::Tr("No JIT memory: Wii U games run on the interpreter, much slower. Is " PS5CEMU_HEN_TITLE " in your HEN's app jailbreak list?"));
 	};
 
 	// what this app made since the last start, and earlier builds and sessions as another user, opened
 	// to every user in /data/ps5cemu: at each start, as a game stops the walk
 	if (privileges.filesystem)
 		ps5filemodes::Start();
-	if (freshStart && privileges.filesystem)
-		ps5update::Start();
+	#ifndef EMUHUB_EMBEDDED_WIIU
+    if (freshStart && privileges.filesystem)
+        ps5update::Start();
+#endif
 	// how long the app took to get here, from the PS5 starting it: the launcher's first frame follows
 	ps5log::Line("[main] the launcher starts {} ms into the app", sceKernelGetProcessTime() / 1000);
 	for (;;)

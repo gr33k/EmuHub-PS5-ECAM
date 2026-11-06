@@ -153,7 +153,7 @@ fi
 printf '%s\n' "${options[*]}" >"$build/.radv-options"
 printf '%s\n' "$build_id" >"$build/.radv-build-id"
 echo "==> [radv] building RADV at ${mesa_revision:0:12} with" $names
-ninja -C "$build" src/amd/vulkan/libvulkan_radeon.a >"$build.log" 2>&1 ||
+"${NINJA:-ninja}" -C "$build" src/amd/vulkan/libvulkan_radeon.a >"$build.log" 2>&1 ||
     { grep -E "error|FAILED" "$build.log" | head -20 >&2; exit 1; }
 
 rm -rf "$install"

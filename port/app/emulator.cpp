@@ -633,8 +633,17 @@ namespace ps5emu
 			ApplyTouchpadClick(player, options.touchpadClick[player]);
 		if (options.overlay)
 			config.overlay.fps = config.overlay.cpu_usage = config.overlay.ram_usage = true;
-		const auto folders = ps5paths::GameFolders({options.gamesFolder});
-		const bool newFolder = !options.gamesFolder.empty() && config.game_paths != folders;
+#ifdef EMUHUB_EMBEDDED_WIIU
+        if (!options.gamesFolder.empty()) {
+            CafeTitleList::ClearScanPaths();
+            CafeTitleList::AddScanPath(_utf8ToPath(options.gamesFolder));
+            CafeTitleList::Refresh();
+            archives::StartScan({options.gamesFolder});
+            ps5log::Line("[emuhub] scanning selected Wii U cache folder {}", options.gamesFolder);
+        }
+#else
+        const auto folders = ps5paths::GameFolders({options.gamesFolder});
+        const bool newFolder = !options.gamesFolder.empty() && config.game_paths != folders;
 		if (newFolder)
 		{
 			config.game_paths = folders;
@@ -645,6 +654,7 @@ namespace ps5emu
 			archives::StartScan(config.game_paths);
 			ps5log::Line("[emu] games folder is now {}", options.gamesFolder);
 		}
+#endif
 		GetConfigHandle().Save();
 	}
 
@@ -1018,7 +1028,13 @@ namespace ps5emu
 				folders.push_back(folder);
 		};
 		consider("/app0");
-		consider(ps5paths::MountSource());
+#ifdef EMUHUB_EMBEDDED_WIIU
+        if (program == "es-de/es-de.bin") {
+            const fs::path titleRoot = fs::path(ps5paths::AppDir()).parent_path().parent_path();
+            consider(titleRoot.string());
+        }
+#endif
+        consider(ps5paths::MountSource());
 		// the usual install folder when it holds the copy running: an older one left there beside an app
 		// on a drive started instead of it
 		if (ps5paths::RunsFrom(ps5paths::kInstallDir))
@@ -1092,8 +1108,13 @@ namespace ps5emu
 
 	void RestartToLibrary()
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+		ps5log::Line("[emuhub] returning to the EmuHub wheel");
+		LoadExecApp("es-de/es-de.bin", {}, false);
+#else
 		ps5log::Line("[emu] back to the library: starting PS5Cemu over");
 		LoadExecApp("eboot.bin", {}, false);
+#endif
 		// none took: the app ends, which is said rather than it just closing
 		ps5notify::Send(ps5lang::Tr("PS5-ECAM could not start itself again to show the library: start it again from the home screen."));
 		ps5log::FlushAll();
@@ -1103,6 +1124,10 @@ namespace ps5emu
 	{
 		ps5boxart::Stop();
 		ps5update::WaitForCheck(10000);
+#ifdef EMUHUB_EMBEDDED_WIIU
+		RestartToLibrary();
+		return;
+#endif
 		ps5log::Line("[emu] the game is over: PS5Cemu closes (a home screen tile's --exit-after-game)");
 		if (s_coreStarted)
 			GetConfigHandle().Save();

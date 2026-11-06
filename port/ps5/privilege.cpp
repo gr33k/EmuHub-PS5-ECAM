@@ -124,7 +124,7 @@ namespace ps5privilege
 				{
 					unlink(kRequestPath);
 					unanswered = true;
-					detail = "no HEN took the request (is a HEN loaded, with PPSA99360 in its app jailbreak list: etaHEN's list, or OnionHEN's exact_title_ids with no trailing comma?)";
+					detail = "no HEN took the request (is a HEN loaded, with " PS5CEMU_HEN_TITLE " in its app jailbreak list: etaHEN's list, or OnionHEN's exact_title_ids with no trailing comma?)";
 					return false;
 				}
 				sceKernelUsleep(kPollUs);

@@ -365,6 +365,10 @@ target_include_directories(CemuPS5 PRIVATE
 	"${PS5CEMU_DEPS}/ps5-forwarder-format/include"
 )
 # the version the launcher and the boot log show (the app's param.json has it as 02.000.004)
+option(EMUHUB_EMBEDDED_WIIU "Build Cemu as a provider inside the EmuHub title" OFF)
+if(EMUHUB_EMBEDDED_WIIU)
+	target_compile_definitions(CemuPS5 PUBLIC EMUHUB_EMBEDDED_WIIU=1)
+endif()
 target_compile_definitions(CemuPS5 PUBLIC PS5CEMU_VERSION="${PS5CEMU_VERSION}"
 	PS5CEMU_CEMU_COMMIT="${PS5CEMU_CEMU_COMMIT}" PS5CEMU_AZAHAR_COMMIT="${PS5CEMU_AZAHAR_COMMIT}"
 	PS5CEMU_MELONDS_COMMIT="${PS5CEMU_MELONDS_COMMIT}" PS5CEMU_EDEN_COMMIT="${PS5CEMU_PROSPEROEDENX_COMMIT}")

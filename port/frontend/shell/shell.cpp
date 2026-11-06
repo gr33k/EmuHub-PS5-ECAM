@@ -257,7 +257,9 @@ namespace ps5shell
 			Toast(Tr("The folders have moved"));
 		else if (!returning && !firstStart && m_status.autoLaunch.empty() && !m_layout.separate.empty() && m_layout.blocked.empty() &&
 				 Today() >= m_settings.ui.reorganizeAsked + 7)
-			m_reorganize.offer = true;
+			#ifndef EMUHUB_EMBEDDED_WIIU
+            m_reorganize.offer = true;
+#endif
 		ps5log::Line("[ui] the new launcher is up in {:.0f} ms", (host.clock() - started) * 1000);
 
 		while (!m_done && !m_failed)
@@ -1161,6 +1163,11 @@ namespace ps5shell
 		auto give = [&](const std::string& why) {
 			m_status.autoLaunch.clear();
 			ps5log::Line("[launcher] the tile's game did not start: {}", why);
+#ifdef EMUHUB_EMBEDDED_WIIU
+			// A failed selected-WUA scan belongs to EmuHub, not this provider's library.
+			ps5notify::Send(why);
+			ps5emu::RestartToLibrary();
+#endif
 			OpenHelp(Tr("The tile's game could not start"), why);
 		};
 		if (m_side != m_status.autoLaunchSide)

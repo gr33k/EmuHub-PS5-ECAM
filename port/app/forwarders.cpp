@@ -381,6 +381,10 @@ namespace ps5forwarders
 
 	void Start(const Request& request)
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+		(void)request; // One EmuHub title: do not create per-game home tiles.
+		return;
+#endif
 		Begin(Run, request);
 	}
 
@@ -391,6 +395,10 @@ namespace ps5forwarders
 
 	void StartRemove(const Request& request)
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+		(void)request; // One EmuHub title: do not create per-game home tiles.
+		return;
+#endif
 		Begin(RunRemove, request);
 	}
 

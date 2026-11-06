@@ -235,6 +235,9 @@ namespace ps5reorganize
 
 	Layout Look(const std::string& root, const std::string& console)
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+        return {}; // No migration UI in the embedded provider.
+#endif
 		Layout layout;
 		const auto systems = Systems(root, console, true);
 		for (const System& system : systems)
@@ -252,6 +255,9 @@ namespace ps5reorganize
 
 	bool Ask(const std::string& root, Request request)
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+        return false; // The embedded provider cannot request data migration.
+#endif
 		if (request == Request::None)
 			return unlink(File(root).c_str()) == 0 || errno == ENOENT;
 		return WriteLines(File(root), {request == Request::Separate ? "separate" : "back"});

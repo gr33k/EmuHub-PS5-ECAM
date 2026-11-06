@@ -647,6 +647,10 @@ namespace ps5update
 
 	void Start()
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+		// The provider must never install a standalone PS5-ECAM release over EmuHub.
+		return;
+#endif
 		{
 			std::lock_guard lock(s_mutex);
 			if (s_status.state != Status::State::Idle)
@@ -663,6 +667,9 @@ namespace ps5update
 
 	void Check()
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+        return; // No standalone update may target PPSA91337.
+#endif
 		{
 			std::lock_guard lock(s_mutex);
 			// (a cancelled download's thread still ending: asked again once it has)
@@ -677,6 +684,9 @@ namespace ps5update
 
 	void Install()
 	{
+#ifdef EMUHUB_EMBEDDED_WIIU
+        return;
+#endif
 		{
 			std::lock_guard lock(s_mutex);
 			if (s_status.state != Status::State::Available || s_running)
